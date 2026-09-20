@@ -1,0 +1,231 @@
+{
+  "points": [
+    {
+      "longitude": -122.396907,
+      "latitude": 37.795851
+    },
+    {
+      "longitude": -122.396855,
+      "latitude": 37.795598
+    },
+    {
+      "longitude": -122.396845,
+      "latitude": 37.795542
+    },
+    {
+      "longitude": -122.396834,
+      "latitude": 37.79548
+    },
+    {
+      "longitude": -122.396823,
+      "latitude": 37.795432
+    },
+    {
+      "longitude": -122.396787,
+      "latitude": 37.795271
+    },
+    {
+      "longitude": -122.396743,
+      "latitude": 37.795071
+    },
+    {
+      "longitude": -122.396735,
+      "latitude": 37.795022
+    },
+    {
+      "longitude": -122.396678,
+      "latitude": 37.794735
+    },
+    {
+      "longitude": -122.396664,
+      "latitude": 37.794655
+    },
+    {
+      "longitude": -122.396651,
+      "latitude": 37.794589
+    },
+    {
+      "longitude": -122.396748,
+      "latitude": 37.794577
+    },
+    {
+      "longitude": -122.397201,
+      "latitude": 37.794519
+    },
+    {
+      "longitude": -122.397299,
+      "latitude": 37.794507
+    },
+    {
+      "longitude": -122.397594,
+      "latitude": 37.794469
+    },
+    {
+      "longitude": -122.397705,
+      "latitude": 37.794455
+    },
+    {
+      "longitude": -122.397816,
+      "latitude": 37.794441
+    },
+    {
+      "longitude": -122.397935,
+      "latitude": 37.794426
+    },
+    {
+      "longitude": -122.398888,
+      "latitude": 37.794305
+    },
+    {
+      "longitude": -122.398992,
+      "latitude": 37.794292
+    },
+    {
+      "longitude": -122.3991,
+      "latitude": 37.794279
+    },
+    {
+      "longitude": -122.400067,
+      "latitude": 37.794156
+    },
+    {
+      "longitude": -122.400164,
+      "latitude": 37.794144
+    },
+    {
+      "longitude": -122.400274,
+      "latitude": 37.79413
+    },
+    {
+      "longitude": -122.400537,
+      "latitude": 37.794097
+    },
+    {
+      "longitude": -122.401241,
+      "latitude": 37.794008
+    },
+    {
+      "longitude": -122.401337,
+      "latitude": 37.793996
+    },
+    {
+      "longitude": -122.40135,
+      "latitude": 37.794056
+    },
+    {
+      "longitude": -122.401415,
+      "latitude": 37.794374
+    },
+    {
+      "longitude": -122.401427,
+      "latitude": 37.794433
+    },
+    {
+      "longitude": -122.401449,
+      "latitude": 37.794536
+    },
+    {
+      "longitude": -122.401462,
+      "latitude": 37.794603
+    },
+    {
+      "longitude": -122.401482,
+      "latitude": 37.794695
+    },
+    {
+      "longitude": -122.401497,
+      "latitude": 37.79477
+    },
+    {
+      "longitude": -122.401516,
+      "latitude": 37.794856
+    },
+    {
+      "longitude": -122.401532,
+      "latitude": 37.794937
+    },
+    {
+      "longitude": -122.401555,
+      "latitude": 37.795049
+    },
+    {
+      "longitude": -122.401595,
+      "latitude": 37.795239
+    },
+    {
+      "longitude": -122.401612,
+      "latitude": 37.795321
+    },
+    {
+      "longitude": -122.40168,
+      "latitude": 37.795652
+    },
+    {
+      "longitude": -122.401694,
+      "latitude": 37.795725
+    },
+    {
+      "longitude": -122.401801,
+      "latitude": 37.795712
+    },
+    {
+      "longitude": -122.402044,
+      "latitude": 37.795688
+    },
+    {
+      "longitude": -122.4021,
+      "latitude": 37.795682
+    },
+    {
+      "longitude": -122.402744,
+      "latitude": 37.795607
+    },
+    {
+      "longitude": -122.403238,
+      "latitude": 37.795546
+    },
+    {
+      "longitude": -122.403327,
+      "latitude": 37.795535
+    },
+    {
+      "longitude": -122.403498,
+      "latitude": 37.795511
+    },
+    {
+      "longitude": -122.403542,
+      "latitude": 37.795505
+    }
+  ],
+  "steps": [
+    {
+      "street": "Drumm Street",
+      "type": "depart",
+      "modifier": "right",
+      "longitude": -122.396907,
+      "latitude": 37.795851
+    },
+    {
+      "street": "Sacramento Street",
+      "type": "turn",
+      "modifier": "right",
+      "longitude": -122.396651,
+      "latitude": 37.794589
+    },
+    {
+      "street": "Sansome Street",
+      "type": "turn",
+      "modifier": "right",
+      "longitude": -122.401337,
+      "latitude": 37.793996
+    },
+    {
+      "street": "Washington Street",
+      "type": "turn",
+      "modifier": "left",
+      "longitude": -122.401694,
+      "latitude": 37.795725
+    }
+  ],
+  "destination": "Transamerica Pyramid"
+}
