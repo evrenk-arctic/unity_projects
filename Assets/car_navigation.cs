@@ -21,6 +21,10 @@ public class car_navigation : MonoBehaviour
 	[SerializeField] private MapSource mapSource = MapSource.GooglePhotorealistic3DTiles;
 	[SerializeField] private string googleApiKeyFile = "GoogleMapsApiKey.txt";
 
+	[Header("Display Modes")]
+	[SerializeField] private bool topDownView;
+	[SerializeField] private bool nightMode;
+
 	[Header("Downtown San Francisco")]
 	[SerializeField] private CesiumGeoreference georeference;
 	[SerializeField] private Camera navigationCamera;
@@ -52,6 +56,11 @@ public class car_navigation : MonoBehaviour
 	private SanFranciscoMap map;
 	private NavigationHud hud;
 	private Cesium3DTileset googleTileset;
+	private Cesium3DTileset googleRoadmapTileset;
+	private CesiumGoogleMapTilesRasterOverlay googleRoadmapOverlay;
+	private string googleApiKey;
+	private bool googleRoadmapNight;
+	private readonly HashSet<Texture> previousRoadmapTextures = new HashSet<Texture>();
 	private double3[] routeCoordinates;
 	private Task<CesiumSampleHeightResult> routeHeightRequest;
 	private bool googleMapLoading;
@@ -66,6 +75,11 @@ public class car_navigation : MonoBehaviour
 	private GameObject routeRibbon;
 	private Material routeCasingMaterial;
 	private Material routeMaterial;
+	private MaterialPropertyBlock tileAppearance;
+	private static readonly int CesiumBaseColor = Shader.PropertyToID("_baseColorFactor");
+	private static readonly int StandardBaseColor = Shader.PropertyToID("_BaseColor");
+	private static readonly int RoadmapTexture = Shader.PropertyToID("_overlayTexture_0");
+	private bool IsGoogleRoadmap => topDownView && googleRoadmapTileset != null;
 
 	public static string GoogleApiKeyDirectory => Application.isEditor
 		? Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings"))
@@ -155,11 +169,10 @@ public class car_navigation : MonoBehaviour
 		vehicle.rotation = Quaternion.LookRotation(route[1] - route[0]);
 		PlaceVehicle();
 		UpdateCamera(true);
-		hud = new NavigationHud(generated, navigationCamera, displayFont, this, MapPoint);
-		if (googleTileset != null)
+		hud = new NavigationHud(generated, navigationCamera, displayFont, MapPoint);
+		ApplyDisplayTheme();
+		if (googleMapLoading)
 		{
-			googleMapLoading = true;
-			googleLoadDeadline = Time.realtimeSinceStartup + 90f;
 			SetNavigationVisible(false);
 		}
 		UnityEngine.Canvas.ForceUpdateCanvases();
@@ -177,11 +190,60 @@ public class car_navigation : MonoBehaviour
 			return false;
 		}
 
-		googleTileset = CreateGoogleTileset(key);
+		googleApiKey = key;
 		Cesium3DTileset.OnCesium3DTilesetLoadFailure += OnGoogleTilesetLoadFailure;
-		googleTileset.OnTileGameObjectCreated += OnGoogleTileCreated;
-		googleTileset.gameObject.SetActive(true);
+		CesiumRasterOverlay.OnCesiumRasterOverlayLoadFailure += OnGoogleRoadmapLoadFailure;
+		ActivateGoogleView();
 		return true;
+	}
+
+	private void ActivateGoogleView()
+	{
+		googleLoadFailed = false;
+		googleLoadHttpStatus = 0;
+		googleTilesReady = false;
+		googleHeightAttempts = 0;
+		googleNextHeightAttempt = 0;
+		routeHeightRequest = null;
+		previousRoadmapTextures.Clear();
+		if (topDownView)
+		{
+			if (googleTileset != null)
+				googleTileset.gameObject.SetActive(false);
+			if (googleRoadmapTileset == null)
+			{
+				googleRoadmapTileset = CreateGoogleRoadmap(googleApiKey);
+				googleRoadmapOverlay = googleRoadmapTileset.GetComponent<CesiumGoogleMapTilesRasterOverlay>();
+			}
+			googleRoadmapNight = nightMode;
+			googleRoadmapOverlay.styles = GoogleRoadmapStyles(nightMode);
+			googleRoadmapTileset.gameObject.SetActive(true);
+		}
+		else
+		{
+			if (googleRoadmapTileset != null)
+				googleRoadmapTileset.gameObject.SetActive(false);
+			if (googleTileset == null)
+			{
+				googleTileset = CreateGoogleTileset(googleApiKey);
+				googleTileset.OnTileGameObjectCreated += OnGoogleTileCreated;
+			}
+			googleTileset.gameObject.SetActive(true);
+		}
+		BeginGoogleMapLoading();
+		if (vehicle != null)
+		{
+			DrawRoute();
+			PlaceVehicle();
+			UpdateCamera(true);
+			SetNavigationVisible(false);
+		}
+	}
+
+	private void BeginGoogleMapLoading()
+	{
+		googleMapLoading = true;
+		googleLoadDeadline = Time.realtimeSinceStartup + 90f;
 	}
 
 	private Cesium3DTileset CreateGoogleTileset(string key)
@@ -200,36 +262,169 @@ public class car_navigation : MonoBehaviour
 		return tileset;
 	}
 
+	private Cesium3DTileset CreateGoogleRoadmap(string key)
+	{
+		var tiles = new GameObject("Google 2D Roadmap");
+		tiles.SetActive(false);
+		tiles.hideFlags = HideFlags.DontSave;
+		tiles.transform.SetParent(georeference.transform, false);
+		Cesium3DTileset tileset = tiles.AddComponent<Cesium3DTileset>();
+		tileset.tilesetSource = CesiumDataSource.FromEllipsoid;
+		tileset.opaqueMaterial = Resources.Load<Material>("CesiumUnlitTilesetMaterial");
+		tileset.showCreditsOnScreen = true;
+		tileset.maximumScreenSpaceError = 4;
+		tileset.createPhysicsMeshes = false;
+		tileset.updateInEditor = false;
+		CesiumGoogleMapTilesRasterOverlay overlay = tiles.AddComponent<CesiumGoogleMapTilesRasterOverlay>();
+		overlay.apiKey = key;
+		overlay.mapType = GoogleMapTilesMapType.Roadmap;
+		overlay.language = "en-US";
+		overlay.region = "US";
+		overlay.layerTypes = new List<GoogleMapTilesLayerType>();
+		overlay.styles = GoogleRoadmapStyles(nightMode);
+		overlay.scale = GoogleMapTilesScale.ScaleFactor2x;
+		overlay.highDpi = true;
+		overlay.maximumScreenSpaceError = 1;
+		overlay.showCreditsOnScreen = true;
+		return tileset;
+	}
+
+	private static List<string> GoogleRoadmapStyles(bool night)
+	{
+		if (!night)
+			return new List<string>();
+		return new List<string>
+		{
+			"{\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#202124\"}]}",
+			"{\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#e8eaed\"}]}",
+			"{\"elementType\":\"labels.text.stroke\",\"stylers\":[{\"color\":\"#202124\"}]}",
+			"{\"featureType\":\"poi\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#bdc1c6\"}]}",
+			"{\"featureType\":\"poi.park\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#263c32\"}]}",
+			"{\"featureType\":\"road\",\"elementType\":\"geometry.fill\",\"stylers\":[{\"color\":\"#484b50\"}]}",
+			"{\"featureType\":\"road\",\"elementType\":\"geometry.stroke\",\"stylers\":[{\"color\":\"#303236\"}]}",
+			"{\"featureType\":\"road.highway\",\"elementType\":\"geometry.fill\",\"stylers\":[{\"color\":\"#74684c\"}]}",
+			"{\"featureType\":\"water\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#172c3a\"}]}",
+			"{\"featureType\":\"water\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#8ab4d0\"}]}",
+			"{\"featureType\":\"water\",\"elementType\":\"labels.text.stroke\",\"stylers\":[{\"color\":\"#172c3a\"}]}"
+		};
+	}
+
 	private void OnGoogleTilesetLoadFailure(Cesium3DTilesetLoadFailureDetails details)
 	{
-		if (details.tileset == googleTileset)
+		if (details.tileset == (IsGoogleRoadmap ? googleRoadmapTileset : googleTileset))
 		{
 			googleLoadFailed = true;
 			googleLoadHttpStatus = details.httpStatusCode;
 		}
 	}
 
+	private void OnGoogleRoadmapLoadFailure(CesiumRasterOverlayLoadFailureDetails details)
+	{
+		if (IsGoogleRoadmap && details.overlay == googleRoadmapOverlay)
+		{
+			googleLoadFailed = true;
+			googleLoadHttpStatus = details.httpStatusCode;
+		}
+	}
+
+	private HashSet<Texture> LoadedRoadmapTextures()
+	{
+		var textures = new HashSet<Texture>();
+		if (googleRoadmapTileset == null)
+			return textures;
+		var properties = new MaterialPropertyBlock();
+		foreach (MeshRenderer renderer in googleRoadmapTileset.GetComponentsInChildren<MeshRenderer>())
+		{
+			if (!renderer.enabled)
+				continue;
+			Material[] materials = renderer.sharedMaterials;
+			for (int index = 0; index < materials.Length; index++)
+			{
+				renderer.GetPropertyBlock(properties, index);
+				Texture texture = properties.GetTexture(RoadmapTexture);
+				if (texture == null && materials[index] != null && materials[index].HasProperty(RoadmapTexture))
+					texture = materials[index].GetTexture(RoadmapTexture);
+				if (texture != null && texture.width > 4 && texture.height > 4)
+					textures.Add(texture);
+			}
+		}
+		return textures;
+	}
+
 	private void OnGoogleTileCreated(GameObject tile)
 	{
 		googleTilesReady = true;
+		ApplyGoogleTileTheme(tile);
+	}
+
+	private void ApplyGoogleTileTheme(GameObject tile)
+	{
+		if (tileAppearance == null)
+			tileAppearance = new MaterialPropertyBlock();
+		Vector4 tint = nightMode ? new Vector4(0.18f, 0.23f, 0.28f, 1f) : Vector4.one;
+		foreach (MeshRenderer renderer in tile.GetComponentsInChildren<MeshRenderer>(true))
+		{
+			Material[] materials = renderer.sharedMaterials;
+			for (int index = 0; index < materials.Length; index++)
+			{
+				Material material = materials[index];
+				if (material == null)
+					continue;
+				int property = material.HasProperty(CesiumBaseColor) ? CesiumBaseColor : StandardBaseColor;
+				if (!material.HasProperty(property))
+					continue;
+				renderer.GetPropertyBlock(tileAppearance, index);
+				tileAppearance.SetVector(property, Vector4.Scale(material.GetVector(property), tint));
+				renderer.SetPropertyBlock(tileAppearance, index);
+			}
+		}
+	}
+
+	private void ApplyDisplayTheme()
+	{
+		if (navigationCamera != null)
+			navigationCamera.backgroundColor = nightMode ? new Color32(22, 29, 33, 255) : new Color32(222, 233, 232, 255);
+		map?.SetNightMode(nightMode);
+		hud?.SetNightMode(nightMode);
+		if (routeCasingMaterial != null)
+			routeCasingMaterial.SetColor("_BaseColor", nightMode ? new Color32(144, 181, 217, 255) : Color.white);
+		if (googleTileset != null)
+			ApplyGoogleTileTheme(googleTileset.gameObject);
+		if (IsGoogleRoadmap && googleRoadmapNight != nightMode)
+		{
+			previousRoadmapTextures.Clear();
+			previousRoadmapTextures.UnionWith(LoadedRoadmapTextures());
+			googleRoadmapNight = nightMode;
+			googleRoadmapOverlay.styles = GoogleRoadmapStyles(nightMode);
+			BeginGoogleMapLoading();
+		}
 	}
 
 	private void UpdateGoogleMap()
 	{
-		if (googleTileset == null)
+		if (googleTileset == null && googleRoadmapTileset == null)
 			return;
 		if (googleLoadFailed)
 		{
-			UseOfflineFallback("Tileset request failed (HTTP " + googleLoadHttpStatus + ").");
+			UseOfflineFallback((IsGoogleRoadmap ? "Google Roadmap session" : "Photorealistic tileset") + " request failed (HTTP " + googleLoadHttpStatus + ").");
 			return;
 		}
 		if (googleMapLoading && Time.realtimeSinceStartup >= googleLoadDeadline)
 		{
-			UseOfflineFallback("Route height sampling exceeded the 90-second loading limit.");
+			UseOfflineFallback(IsGoogleRoadmap ? "Google Roadmap tiles exceeded the 90-second loading limit." : "Route height sampling exceeded the 90-second loading limit.");
 			return;
 		}
 		if (!googleMapLoading)
 			return;
+		if (IsGoogleRoadmap)
+		{
+			HashSet<Texture> textures = LoadedRoadmapTextures();
+			textures.ExceptWith(previousRoadmapTextures);
+			if (textures.Count == 0)
+				return;
+			FinishGoogleMapLoading();
+			return;
+		}
 		if (routeHeightRequest == null)
 		{
 			if (!googleTilesReady || Time.realtimeSinceStartup < googleNextHeightAttempt)
@@ -271,8 +466,14 @@ public class car_navigation : MonoBehaviour
 			UseOfflineFallback("Insufficient route terrain after three attempts (" + successful + "/" + route.Length + " samples succeeded).");
 			return;
 		}
+		FinishGoogleMapLoading();
+	}
+
+	private void FinishGoogleMapLoading()
+	{
 		googleMapLoading = false;
 		routeHeightRequest = null;
+		previousRoadmapTextures.Clear();
 		DrawRoute();
 		PlaceVehicle();
 		UpdateCamera(true);
@@ -334,13 +535,11 @@ public class car_navigation : MonoBehaviour
 	{
 		googleFallbackReason = reason;
 		Cesium3DTileset.OnCesium3DTilesetLoadFailure -= OnGoogleTilesetLoadFailure;
-		googleTileset.OnTileGameObjectCreated -= OnGoogleTileCreated;
-		googleTileset.gameObject.SetActive(false);
-		SanFranciscoMap.Release(googleTileset.gameObject);
-		googleTileset = null;
+		CesiumRasterOverlay.OnCesiumRasterOverlayLoadFailure -= OnGoogleRoadmapLoadFailure;
+		ReleaseGoogleMaps();
 		googleMapLoading = false;
 		routeHeightRequest = null;
-		Debug.LogWarning("Google 3D Tiles: " + reason + " Using the offline map.", this);
+		Debug.LogWarning("Google Maps: " + reason + " Using the offline map. Check Map Tiles API permissions for the selected map type.", this);
 		if (mapData == null)
 		{
 			SetNavigationVisible(false);
@@ -365,8 +564,15 @@ public class car_navigation : MonoBehaviour
 			SanFranciscoMap.Release(routeCasing);
 			SanFranciscoMap.Release(routeRibbon);
 		}
-		routeCasing = map.Line("Route Casing", route, 12f, 0.75f, routeCasingMaterial);
-		routeRibbon = map.Line("Downtown Route", route, 8f, 0.85f, routeMaterial);
+		Vector3[] displayRoute = route;
+		if (IsGoogleRoadmap)
+		{
+			displayRoute = (Vector3[])route.Clone();
+			for (int index = 0; index < displayRoute.Length; index++)
+				displayRoute[index].y = 0;
+		}
+		routeCasing = map.Line("Route Casing", displayRoute, 12f, 0.75f, routeCasingMaterial);
+		routeRibbon = map.Line("Downtown Route", displayRoute, 8f, 0.85f, routeMaterial);
 	}
 
 	private void SetNavigationVisible(bool visible)
@@ -484,19 +690,27 @@ public class car_navigation : MonoBehaviour
 	private void Update()
 	{
 		UpdateGoogleMap();
-		Keyboard keyboard = Keyboard.current;
+		HandleKeyboardInput(Keyboard.current);
+		Simulate(Time.deltaTime);
+	}
+
+	private void HandleKeyboardInput(Keyboard keyboard)
+	{
 		if (keyboard != null)
 		{
 			if (keyboard.spaceKey.wasPressedThisFrame)
 				TogglePause();
 			if (keyboard.nKey.wasPressedThisFrame)
 				ToggleOrientation();
+			if (keyboard.vKey.wasPressedThisFrame)
+				ToggleViewMode();
+			if (keyboard.tKey.wasPressedThisFrame)
+				ToggleDayNight();
 			if (keyboard.equalsKey.wasPressedThisFrame || keyboard.numpadPlusKey.wasPressedThisFrame)
 				Zoom(-30);
 			if (keyboard.minusKey.wasPressedThisFrame || keyboard.numpadMinusKey.wasPressedThisFrame)
 				Zoom(30);
 		}
-		Simulate(Time.deltaTime);
 	}
 
 	public void Simulate(float deltaTime)
@@ -549,6 +763,8 @@ public class car_navigation : MonoBehaviour
 		Vector3 direction = route[segment + 1] - route[segment];
 		float length = cumulativeDistances[segment + 1] - cumulativeDistances[segment];
 		vehicle.position = Vector3.Lerp(route[segment], route[segment + 1], segmentDistance / length) + Vector3.up * 3f;
+		if (IsGoogleRoadmap)
+			vehicle.position = new Vector3(vehicle.position.x, 3f, vehicle.position.z);
 		vehicle.localScale = Vector3.one * navigationCamera.orthographicSize / 170f;
 		direction.y = 0;
 		if (direction.sqrMagnitude > 0.001f)
@@ -573,18 +789,16 @@ public class car_navigation : MonoBehaviour
 		foreach (RouteStep step in steps)
 			if (step.distance <= traveled + 1f)
 				street = step.street;
-		float remaining = Mathf.Max(0, routeLength - traveled);
-		float minutes = remaining / (cruiseSpeedMph * MetersPerMile / 3600f * 0.85f) / 60f;
-		hud?.Update(street, next.street, next.modifier, turnDistance, remaining, speed / MetersPerMile * 3600f,
-			minutes, traveled / routeLength, paused, northUp, googleTileset != null, googleMapLoading, arrived);
+		hud?.Update(street, next.street, next.modifier, turnDistance,
+			paused, googleTileset != null || googleRoadmapTileset != null, googleMapLoading, arrived, IsGoogleRoadmap);
 	}
 
 	private void UpdateCamera(bool immediate)
 	{
 		Vector3 forward = northUp ? Vector3.forward : vehicle.forward;
 		Vector3 target = vehicle.position + forward * 65f;
-		Vector3 position = target + Vector3.up * 360f - forward * 230f;
-		Quaternion rotation = Quaternion.LookRotation(target - position);
+		Vector3 position = target + Vector3.up * 360f - (topDownView ? Vector3.zero : forward * 230f);
+		Quaternion rotation = topDownView ? Quaternion.LookRotation(Vector3.down, forward) : Quaternion.LookRotation(target - position);
 		float blend = immediate ? 1f : 1f - Mathf.Exp(-Time.deltaTime * 3f);
 		navigationCamera.transform.position = Vector3.Lerp(navigationCamera.transform.position, position, blend);
 		navigationCamera.transform.rotation = Quaternion.Slerp(navigationCamera.transform.rotation, rotation, blend);
@@ -600,18 +814,45 @@ public class car_navigation : MonoBehaviour
 			speed = 0;
 	}
 	public void ToggleOrientation() => northUp = !northUp;
+	public void ToggleViewMode()
+	{
+		topDownView = !topDownView;
+		if (!string.IsNullOrEmpty(googleApiKey))
+			ActivateGoogleView();
+	}
+	public void ToggleDayNight()
+	{
+		nightMode = !nightMode;
+		ApplyDisplayTheme();
+	}
 	public void Zoom(float amount) => cameraHeight = Mathf.Clamp(cameraHeight + amount, 90f, 300f);
 
 	private void OnDestroy()
 	{
 		Cesium3DTileset.OnCesium3DTilesetLoadFailure -= OnGoogleTilesetLoadFailure;
-		if (googleTileset != null)
-		{
-			googleTileset.OnTileGameObjectCreated -= OnGoogleTileCreated;
-			SanFranciscoMap.Release(googleTileset.gameObject);
-		}
+		CesiumRasterOverlay.OnCesiumRasterOverlayLoadFailure -= OnGoogleRoadmapLoadFailure;
+		ReleaseGoogleMaps();
 		map?.Dispose();
 		if (generated != null)
 			SanFranciscoMap.Release(generated.gameObject);
+	}
+
+	private void ReleaseGoogleMaps()
+	{
+		if (googleTileset != null)
+		{
+			googleTileset.OnTileGameObjectCreated -= OnGoogleTileCreated;
+			googleTileset.gameObject.SetActive(false);
+			SanFranciscoMap.Release(googleTileset.gameObject);
+		}
+		if (googleRoadmapTileset != null)
+		{
+			googleRoadmapTileset.gameObject.SetActive(false);
+			SanFranciscoMap.Release(googleRoadmapTileset.gameObject);
+		}
+		googleTileset = null;
+		googleRoadmapTileset = null;
+		googleRoadmapOverlay = null;
+		googleApiKey = null;
 	}
 }

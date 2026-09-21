@@ -12,6 +12,8 @@ internal sealed class SanFranciscoMap : IDisposable
     private readonly Transform parent;
     private readonly Shader mapShader;
     private readonly Shader vehicleShader;
+    private readonly List<(Material material, Color day, Color night)> themedMaterials = new List<(Material, Color, Color)>();
+    private bool nightMode;
 
     public SanFranciscoMap(Transform parent, Shader mapShader, Shader vehicleShader)
     {
@@ -31,6 +33,20 @@ internal sealed class SanFranciscoMap : IDisposable
         material.SetFloat("_Cull", 0f);
         resources.Add(material);
         return material;
+    }
+
+    private Material ThemedMaterial(string name, Color day, Color night, bool lit = false)
+    {
+        Material material = Material(name, nightMode ? night : day, lit);
+        themedMaterials.Add((material, day, night));
+        return material;
+    }
+
+    public void SetNightMode(bool enabled)
+    {
+        nightMode = enabled;
+        foreach (var theme in themedMaterials)
+            theme.material.color = enabled ? theme.night : theme.day;
     }
 
     public void Build(TextAsset source, Func<double, double, Vector3> project)
@@ -119,15 +135,15 @@ internal sealed class SanFranciscoMap : IDisposable
         if (ground.VertexCount == 0)
             ground.Quad(new Vector3(-5000, 0, -5000), new Vector3(-5000, 0, 5000), new Vector3(5000, 0, 5000), new Vector3(5000, 0, -5000));
 
-        Emit("San Francisco Bay", water, Material("Bay", new Color32(157, 207, 219, 255)));
-        Emit("Downtown Blocks", ground, Material("Land", new Color32(225, 230, 225, 255)));
-        Emit("Public Gardens", parks, Material("Parks", new Color32(168, 202, 157, 255)));
-        Emit("Street Edges", roadEdges, Material("Street Edges", new Color32(204, 211, 207, 255)));
-        Emit("Streets", roads, Material("Streets", new Color32(253, 253, 247, 255)));
-        Emit("Walkways", paths, Material("Walkways", new Color32(240, 241, 232, 255)));
-        Emit("Building Walls", walls, Material("Facades", new Color32(176, 189, 185, 255), true));
-        Emit("Building Roofs", roofs, Material("Roofs", new Color32(212, 220, 217, 255)));
-        Emit("Building Outlines", roofEdges, Material("Roof Edges", new Color32(190, 202, 197, 255)));
+        Emit("San Francisco Bay", water, ThemedMaterial("Bay", new Color32(157, 207, 219, 255), new Color32(21, 47, 55, 255)));
+        Emit("Downtown Blocks", ground, ThemedMaterial("Land", new Color32(225, 230, 225, 255), new Color32(32, 39, 36, 255)));
+        Emit("Public Gardens", parks, ThemedMaterial("Parks", new Color32(168, 202, 157, 255), new Color32(39, 61, 48, 255)));
+        Emit("Street Edges", roadEdges, ThemedMaterial("Street Edges", new Color32(204, 211, 207, 255), new Color32(42, 49, 47, 255)));
+        Emit("Streets", roads, ThemedMaterial("Streets", new Color32(253, 253, 247, 255), new Color32(83, 96, 94, 255)));
+        Emit("Walkways", paths, ThemedMaterial("Walkways", new Color32(240, 241, 232, 255), new Color32(66, 79, 73, 255)));
+        Emit("Building Walls", walls, ThemedMaterial("Facades", new Color32(176, 189, 185, 255), new Color32(43, 50, 50, 255), true));
+        Emit("Building Roofs", roofs, ThemedMaterial("Roofs", new Color32(212, 220, 217, 255), new Color32(52, 59, 59, 255)));
+        Emit("Building Outlines", roofEdges, ThemedMaterial("Roof Edges", new Color32(190, 202, 197, 255), new Color32(70, 81, 80, 255)));
         Release(triangulatorObject);
     }
 
@@ -174,6 +190,7 @@ internal sealed class SanFranciscoMap : IDisposable
         foreach (UnityEngine.Object resource in resources)
             Release(resource);
         resources.Clear();
+        themedMaterials.Clear();
     }
 
     public static void Release(UnityEngine.Object resource)

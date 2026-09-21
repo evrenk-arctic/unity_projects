@@ -7,15 +7,21 @@ The route does not loop or restart automatically; restart Play mode to drive aga
 Photorealistic 3D Tiles is the default map source.** Without a configured key, the
 display automatically uses the bundled offline OpenStreetMap map.
 
+The standalone player defaults to a **1920x720 window**. The editor selects a
+matching fixed-resolution Game view preset once per session; select
+**Navigation > Set Game View to 1920x720** to restore it manually. Unity may scale
+the preview to fit the Game tab, but its render resolution remains 1920x720.
+
 ## Google Map Tiles Setup
 
 1. Enable **Map Tiles API** and billing on your Google Cloud project. The key must
-	allow Photorealistic 3D Tiles requests from this Unity application.
+	allow both Photorealistic 3D Tiles and 2D Roadmap tile sessions from this Unity application.
 2. Replace the placeholder in `UserSettings/GoogleMapsApiKey.txt` with just your API
 	key on one line, without quotes, JSON, or `key=`. The file is Git-ignored and
 	outside `Assets`; it is not imported or included in builds.
 3. Press **Play**. The car waits while Cesium streams the map and samples the route
-	elevation, then starts cruising. Google/server attribution stays on screen.
+	elevation for 3D, then starts cruising. In 2D it waits for Google Roadmap imagery
+	instead; no 3D terrain sampling is required. Google/server attribution stays on screen.
 
 To select the original styled map, change **Map Source** on the `car_navigation`
 component under `CesiumGeoreference` to **Offline Open Street Map**, then restart
@@ -39,12 +45,59 @@ request URLs; redact those before sharing logs. Google streaming requires intern
 access and is subject to Google's billing, coverage, and Map Tiles API terms.
 
 The display includes an angled follow camera, real street and building footprints,
-a highlighted route, upcoming turns, current street, mph, estimated arrival, and
-trip progress. Use the on-screen controls to zoom, switch north-up/heading-up,
-or pause. Keyboard alternatives: **Space**, **N**, and **+ / -**.
+a highlighted route, upcoming turns, a compact current-street label, and arrival
+guidance. The map fills the display without top or bottom horizontal bars or
+on-screen navigation buttons; provider credits and their links remain available.
+Controls are keyboard-only. In the editor, focus the **Game** view first:
 
-The `car_navigation` component on `CesiumGeoreference` exposes cruise speed and
-camera height. **Navigation > Preview Downtown Display** previews the generated
+| Shortcut | Action |
+| --- | --- |
+| **+** or **=** (also numpad **+**) | Zoom in |
+| **-** (also numpad **-**) | Zoom out |
+| **N** | Toggle north-up / heading-up |
+| **T** | Toggle day/night (server-rendered styles on Google Roadmap) |
+| **V** | Switch Google 2D Roadmap / photorealistic 3D |
+| **Space** | Pause / resume driving |
+
+Each press performs one action. Pause/resume does not restart a completed trip.
+
+The display starts in daytime with the angled 3D view. The two mode switches are
+independent and preserve route progress, pause state, zoom, and heading preference.
+
+**Google 2D mode uses real [Roadmap tiles](https://developers.google.com/maps/documentation/tile/roadmap)**,
+including Google's roads, buildings, place labels, and icons. It is a separate
+`CesiumGoogleMapTilesRasterOverlay` on an unlit ellipsoid, not a rotated view of the
+photorealistic model. The blue route and marker are flattened for this view without
+overwriting their sampled 3D heights. **N** selects north-up when you prefer raster
+map labels to stay upright; heading-up rotates the map and its labels together.
+
+Google Roadmap day mode uses the default Google styling. Night mode requests new
+tiles with dark geometry and readable road, water, and label colors through Google's
+[server-side style API](https://developers.google.com/maps/documentation/tile/style-reference).
+The returned tile imagery is styled by Google, not tinted by Unity. The API takes
+explicit JSON style rules, not a built-in Navigation SDK night-mode flag; this scene
+does not embed Google's consumer navigation app or Navigation SDK.
+
+The photorealistic 3D API does **not** supply nighttime imagery. In 3D, night mode
+remains a local dark treatment of daytime photos. Offline mode retains its local
+day/night palette and switches between angled and top-down views. Required provider
+credits remain visible in every Google mode.
+
+In 2D, provider credits use a compact, content-sized box. Logos are scaled
+proportionally with clear space, and attribution text remains readable and
+clickable. The expanded attribution panel also sizes to its content rather than
+reserving most of the screen height.
+
+Switching Google sources or Roadmap styles may take a moment and pauses simulated
+travel while new tiles arrive. The existing pause preference is preserved. Failed
+requests or a 90-second loading timeout fall back to the offline map with a specific
+Console warning. Cesium manages tile streaming, session requests, and attribution;
+the API key is never serialized into the scene, and this code does not save Google
+tiles to project assets.
+
+The `car_navigation` component on `CesiumGeoreference` exposes initial **Top Down
+View** (Google Roadmap in Google mode) and **Night Mode** settings, cruise speed, and camera height.
+**Navigation > Preview Downtown Display** previews the generated
 offline map in the editor without Google requests; Play mode is the normal animated
 experience. The Google map retains real building heights and uses sampled road
 surface elevation; the offline map keeps its simplified heights.
@@ -52,17 +105,22 @@ surface elevation; the offline map keeps its simplified heights.
 ## Data and Scope
 
 - Street/building geometry: [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), licensed under [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/). The bundled XML is a filtered downtown extract downloaded from the OSM API. Building heights are compressed for legibility; ground elevation is flattened.
-- Driving route: the outbound leg of a route generated with the [OSRM routing service](https://project-osrm.org/) using OpenStreetMap roads. It is a bundled demonstration route, not live traffic, GPS positioning, or a production navigation service. ETA is a simulation estimate.
+- Driving route: the outbound leg of a route generated with the [OSRM routing service](https://project-osrm.org/) using OpenStreetMap roads. It is a bundled demonstration route, not live traffic, GPS positioning, or a production navigation service.
 - Typeface: Barlow Medium, under the SIL Open Font License bundled in `Assets/NavigationDisplay-License.txt`.
-- Cesium provides geographic coordinate conversion and streams [Google Photorealistic 3D Tiles](https://developers.google.com/maps/documentation/tile/3d-tiles) when selected and configured. The unused original tileset remains disabled. Google tiles and sampled heights are not saved as local map assets.
+- Cesium provides geographic coordinate conversion and streams [Google Photorealistic 3D Tiles](https://developers.google.com/maps/documentation/tile/3d-tiles) or Google 2D Roadmap tiles when selected and configured. The unused original tileset remains disabled. Google tiles and sampled heights are not saved as local map assets.
 
 ## Verification
 
 `NavigationSceneChecks.Run` is an editor batch entry point that checks geometry,
-one-way travel, destination arrival without wraparound, pause/resume, control wiring, zoom bounds, pointer hit
-testing, and desktop/portrait rendering. It also checks the Google default,
+one-way travel, destination arrival without wraparound, simulated keyboard presses,
+pause/resume, orientation toggling, zoom bounds, held-key behavior, absence of
+on-screen controls and full-width HUD bars, and desktop/portrait rendering. Mode
+checks cover all day/night and 2D/3D combinations at 1920x720, portrait 2D views,
+rendered night brightness, camera direction, unchanged trip progress, and new-tile
+theme inheritance without modifying shared materials. It also checks the Google default,
 key-file handling, URL configuration, terrain alignment, bounded interpolation of
-missing heights, startup readiness, and failure fallback with synthetic inputs,
+missing heights, startup readiness, Roadmap configuration, server-style selection,
+flat overlays that preserve 3D heights, and failure fallback with synthetic inputs,
 without contacting Google. It writes PNGs to `Temp/NavigationChecks`
 (or the directory supplied through `NAVIGATION_CHECK_OUTPUT`). Run it against a
 separate copy if this project is already open in Unity:
@@ -76,7 +134,10 @@ Unity cameras and UI, and exit with a success or failure code automatically.
 
 For a bounded live check, use `-executeMethod NavigationSceneChecks.RunGoogleLive`
 instead and provide the key file in the test project's `UserSettings` directory.
-This check makes billable Google requests and verifies tile rendering, route
-heights, car motion, button hit testing, and desktop/portrait camera captures.
+This check makes billable Google requests and verifies 3D -> Roadmap -> night ->
+day -> 3D transitions, flat/3D route alignment, unchanged trip progress, completed
+arrival, actual day/night tile brightness, and at least 99% map coverage in 1920x720
+and portrait captures. `NavigationSceneChecks.RunGoogleRoadmapLive` starts directly
+in 2D and also verifies that Roadmap startup does not require photorealistic tiles.
 It was verified against the downtown route on 2026-09-20. Camera captures do not
 include Cesium's separate UI Toolkit attribution overlay; the normal Game view does.
