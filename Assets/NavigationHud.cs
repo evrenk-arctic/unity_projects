@@ -25,6 +25,15 @@ internal sealed class NavigationHud
     private readonly Text attribution;
     private UIDocument creditsDocument;
     private bool roadmapCredits;
+    private bool visible = true;
+
+    public void SetVisible(bool enabled)
+    {
+        visible = enabled;
+        safeArea.gameObject.SetActive(enabled);
+        if (creditsDocument != null)
+            creditsDocument.rootVisualElement.style.display = enabled ? UnityEngine.UIElements.DisplayStyle.Flex : UnityEngine.UIElements.DisplayStyle.None;
+    }
 
     private sealed class MapLabel
     {
@@ -45,8 +54,8 @@ internal sealed class NavigationHud
         canvas.sortingOrder = 100;
         CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1280, 800);
-        scaler.matchWidthOrHeight = 0.5f;
+        scaler.referenceResolution = new Vector2(1920, 720);
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
         safeArea = Rect("Safe Area", canvasObject.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
 
         AddLabel("Sacramento St", -122.3997, 37.7942, project);
@@ -64,8 +73,8 @@ internal sealed class NavigationHud
         AddLabel("CHINATOWN", -122.4067, 37.7958, project);
         AddLabel("EMBARCADERO", -122.3955, 37.7972, project);
 
-        maneuver = Panel("Next Maneuver", safeArea, Vector2.up, Vector2.up, new Vector2(20, -20), new Vector2(430, 124), Ink);
-        maneuver.pivot = Vector2.up;
+        maneuver = Panel("Next Maneuver", safeArea, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -22), new Vector2(430, 124), Ink);
+        maneuver.pivot = new Vector2(0.5f, 1);
         turnIcon = Icon(maneuver, "right", Color.white);
         Place(turnIcon.rectTransform, new Vector2(0, 0.5f), new Vector2(22, 0), new Vector2(66, 66), new Vector2(0, 0.5f));
         turnDistance = Label(maneuver, "", 36, Color.white, TextAnchor.MiddleLeft);
@@ -78,7 +87,8 @@ internal sealed class NavigationHud
         RectTransform streetStrip = Panel("Current Street", safeArea, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 60), new Vector2(320, 40), Color.white);
         currentStreet = Label(streetStrip, "", 20, Ink, TextAnchor.MiddleCenter);
         attribution = Label(safeArea, "Map data (c) OpenStreetMap contributors / ODbL", 11, Ink, TextAnchor.MiddleLeft);
-        Place(attribution.rectTransform, Vector2.zero, new Vector2(14, 14), new Vector2(420, 18), Vector2.zero);
+        Place(attribution.rectTransform, new Vector2(0.5f, 0), new Vector2(0, 14), new Vector2(420, 18), new Vector2(0.5f, 0));
+        attribution.alignment = TextAnchor.MiddleCenter;
 
         if (UnityEngine.Object.FindAnyObjectByType<EventSystem>() == null)
         {
@@ -151,7 +161,8 @@ internal sealed class NavigationHud
             creditsDocument = CesiumCreditSystem.GetDefaultCreditSystem().GetComponent<UIDocument>();
         if (creditsDocument == null || creditsDocument.rootVisualElement == null)
             return;
-        creditsDocument.sortingOrder = 110;
+        creditsDocument.rootVisualElement.style.display = visible ? UnityEngine.UIElements.DisplayStyle.Flex : UnityEngine.UIElements.DisplayStyle.None;
+        creditsDocument.sortingOrder = 160;
         var credits = UnityEngine.UIElements.UQueryExtensions.Q<UnityEngine.UIElements.VisualElement>(creditsDocument.rootVisualElement, "OnScreenCredits");
         if (credits == null)
             return;
@@ -166,8 +177,9 @@ internal sealed class NavigationHud
         float canvasScale = safeArea.GetComponentInParent<Canvas>().scaleFactor;
         float creditScale = Mathf.Max(1f, canvasScale) * scale;
         credits.style.bottom = (Screen.safeArea.yMin + 96f * canvasScale) * scale;
-        credits.style.left = (Screen.safeArea.xMin + 14f * canvasScale) * scale;
-        credits.style.maxWidth = Mathf.Min((roadmapCredits ? 360f : 520f) * canvasScale, Screen.safeArea.width - 28f * canvasScale) * scale;
+        float creditWidth = Mathf.Min((roadmapCredits ? 360f : 520f) * canvasScale, Screen.safeArea.width - 28f * canvasScale);
+        credits.style.left = (Screen.safeArea.xMin + (Screen.safeArea.width - creditWidth) * 0.5f) * scale;
+        credits.style.maxWidth = creditWidth * scale;
         credits.style.height = StyleKeyword.Auto;
         credits.style.flexWrap = roadmapCredits ? UnityEngine.UIElements.Wrap.NoWrap : UnityEngine.UIElements.Wrap.Wrap;
         credits.style.paddingLeft = credits.style.paddingRight = 4f * creditScale;
@@ -345,6 +357,25 @@ internal sealed class NavigationIconGraphic : MaskableGraphic
         }
         else if (symbol == "play")
             Triangle(helper, new Vector2(0.15f, 0.05f), new Vector2(0.95f, 0.5f), new Vector2(0.15f, 0.95f));
+        else if (symbol == "next" || symbol == "previous")
+        {
+            bool next = symbol == "next";
+            float start = next ? 0.08f : 0.92f;
+            float end = next ? 0.8f : 0.2f;
+            Triangle(helper, new Vector2(start, 0.1f), new Vector2(end, 0.5f), new Vector2(start, 0.9f));
+            float bar = next ? 0.93f : 0.07f;
+            Stroke(helper, new Vector2(bar, 0.1f), new Vector2(bar, 0.9f), 0.12f);
+        }
+        else if (symbol == "speaker" || symbol == "mute")
+        {
+            Stroke(helper, new Vector2(0.12f, 0.35f), new Vector2(0.12f, 0.65f), 0.2f);
+            Triangle(helper, new Vector2(0.15f, 0.5f), new Vector2(0.52f, 0.12f), new Vector2(0.52f, 0.88f));
+            Stroke(helper, new Vector2(0.7f, 0.28f), new Vector2(0.7f, 0.72f), 0.08f);
+            if (symbol == "mute")
+                Stroke(helper, new Vector2(0.68f, 0.28f), new Vector2(0.95f, 0.72f), 0.1f);
+            else
+                Stroke(helper, new Vector2(0.9f, 0.16f), new Vector2(0.9f, 0.84f), 0.08f);
+        }
         else if (symbol == "follow" || symbol == "compass")
         {
             Triangle(helper, new Vector2(0.5f, 1), new Vector2(0.12f, 0.05f), new Vector2(0.5f, 0.25f));

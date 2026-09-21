@@ -7,6 +7,7 @@ using Unity.Mathematics;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.Rendering;
@@ -183,6 +184,9 @@ public static class NavigationSceneChecks
         Directory.CreateDirectory(output);
         if (liveMapStage == 0)
         {
+            if (!Field<bool>(controller, "navigationBackground"))
+                controller.ToggleNavigationBackground();
+            Field<InstrumentCluster>(controller, "cluster").Tick(1);
             Vector3 before = vehicle.position;
             for (int tick = 0; tick < 90; tick++)
                 controller.Simulate(1f / 30f);
@@ -194,9 +198,7 @@ public static class NavigationSceneChecks
             if (!roadmap)
             {
                 Invoke(controller, "UpdateCamera", true);
-                Capture(controller, 1920, 720, Path.Combine(output, "google-day-3d.png"));
-                controller.ToggleViewMode();
-                liveMapStage = 1;
+                liveMapStage = -1;
                 liveMapReadySince = -1;
                 return false;
             }
@@ -211,6 +213,14 @@ public static class NavigationSceneChecks
         Require(Mathf.Abs(vehicle.position.x - liveMapPosition.x) < 0.01f && Mathf.Abs(vehicle.position.z - liveMapPosition.z) < 0.01f,
             "Source switching preserves the geographic vehicle position.");
         Invoke(controller, "UpdateCamera", true);
+        if (liveMapStage == -1)
+        {
+            Capture(controller, 1920, 720, Path.Combine(output, "google-day-3d.png"));
+            controller.ToggleViewMode();
+            liveMapStage = 1;
+            liveMapReadySince = -1;
+            return false;
+        }
         if (liveMapStage == 1 || liveMapStage == 2 || liveMapStage == 3)
         {
             Require(roadmap && tileset.tilesetSource == CesiumDataSource.FromEllipsoid, "2D renders a separate Google Roadmap layer.");
@@ -278,6 +288,10 @@ public static class NavigationSceneChecks
         Require(GameObject.Find("Building Roofs").GetComponent<MeshFilter>().sharedMesh.vertexCount > 1000, "Real building geometry is present.");
         Require(GameObject.Find("Streets").GetComponent<MeshFilter>().sharedMesh.vertexCount > 1000, "Street geometry is present.");
 
+        string output = Environment.GetEnvironmentVariable("NAVIGATION_CHECK_OUTPUT") ?? "Temp/NavigationChecks";
+        Directory.CreateDirectory(output);
+        CheckInstrumentCluster(controller, output);
+
         Transform vehicle = Field<Transform>(controller, "vehicle");
         Vector3 start = vehicle.position;
         for (int tick = 0; tick < 300; tick++)
@@ -290,8 +304,6 @@ public static class NavigationSceneChecks
         controller.TogglePause();
 
         CheckArrival(controller);
-        string output = Environment.GetEnvironmentVariable("NAVIGATION_CHECK_OUTPUT") ?? "Temp/NavigationChecks";
-        Directory.CreateDirectory(output);
         Invoke(controller, "UpdateCamera", true);
         Capture(controller, 1440, 900, Path.Combine(output, "arrival-desktop.png"));
         Capture(controller, 1920, 720, Path.Combine(output, "arrival-1920x720.png"));
@@ -321,7 +333,95 @@ public static class NavigationSceneChecks
         CheckGoogleMapSource(controller);
         CheckGoogleRoadmapConfiguration(controller);
 
-        Debug.Log($"NAVIGATION CHECKS PASSED: {route.Length} points, {length:0} meters, non-looping arrival; keyboard controls and button-free HUD verified; Google configuration, key loading, open-route terrain alignment, and fallback checked without network requests; screenshots: {output}");
+        Debug.Log($"NAVIGATION CHECKS PASSED: {route.Length} points, {length:0} meters, non-looping arrival; dynamic cluster, media controls, map reveal and keyboard controls verified; Google configuration, key loading, open-route terrain alignment, and fallback checked without network requests; screenshots: {output}");
+    }
+
+    private static void CheckInstrumentCluster(car_navigation controller, string output)
+    {
+        InstrumentCluster cluster = Field<InstrumentCluster>(controller, "cluster");
+        Require(cluster != null && !cluster.NavigationVisible && !Field<bool>(controller, "navigationBackground"),
+            "The scene starts as an instrument cluster with navigation hidden.");
+        RectTransform canvas = Field<RectTransform>(cluster, "canvasRect");
+        CanvasScaler scaler = canvas.GetComponent<CanvasScaler>();
+        Require(scaler.referenceResolution == new Vector2(1920, 720), "The cluster targets 1920x720.");
+        RectTransform speedometer = (RectTransform)canvas.Find("Speedometer");
+        RectTransform media = (RectTransform)canvas.Find("Media Player");
+        Require(speedometer != null && media != null && speedometer.anchoredPosition.x == 330 && media.anchoredPosition.x == -330,
+            "Instruments have stable left and right tracks with an open center.");
+        AudioSource source = Field<AudioSource>(cluster, "audioSource");
+        Require(source != null && source.clip != null && cluster.TrackTitle == "Coastline", "The media player loads its playable demo track.");
+        float[] samples = new float[22050];
+        source.clip.GetData(samples, 22050);
+        Require(samples.Any(value => Mathf.Abs(value) > 0.01f), "Demo media contains audio, not just a simulated progress label.");
+        Capture(controller, 1920, 720, Path.Combine(output, "cluster-only.png"), false);
+
+        Vector3 before = Field<Transform>(controller, "vehicle").position;
+        controller.Simulate(3);
+        Invoke(controller, "RefreshHud");
+        cluster.Tick(1);
+        Require(controller.SpeedMph > 0 && Mathf.Abs(cluster.DisplayedSpeed - controller.SpeedMph) < 0.1f,
+            "The speedometer follows real simulated vehicle speed.");
+        Require(Field<Transform>(controller, "vehicle").position != before, "The drive advances while the map is hidden.");
+        Capture(controller, 1920, 720, Path.Combine(output, "cluster-driving.png"), false);
+
+        int segment = Field<int>(controller, "segment");
+        float distance = Field<float>(controller, "segmentDistance");
+        int track = cluster.TrackIndex;
+        cluster.Seek(0.25f);
+        float playbackTime = source.time;
+        controller.ToggleNavigationBackground();
+        cluster.Tick(1);
+        Require(cluster.NavigationVisible && Field<RectTransform>(Field<object>(controller, "hud"), "safeArea").gameObject.activeSelf,
+            "Map reveal activates navigation behind the cluster.");
+        Require(canvas.gameObject.activeInHierarchy && speedometer.gameObject.activeInHierarchy && media.gameObject.activeInHierarchy &&
+            Field<RawImage>(cluster, "background").color.a == 0, "Both instruments stay in the foreground while the map fills the background.");
+        Require(Field<int>(controller, "segment") == segment && Field<float>(controller, "segmentDistance") == distance &&
+            cluster.TrackIndex == track && Mathf.Abs(source.time - playbackTime) < 0.5f,
+            "Map reveal does not restart navigation or media playback.");
+        Capture(controller, 1920, 720, Path.Combine(output, "cluster-navigation.png"));
+
+        Canvas.ForceUpdateCanvases();
+        Button next = canvas.GetComponentsInChildren<Button>().Single(button => button.name == "Next track");
+        RectTransform buttonRect = (RectTransform)next.transform;
+        Vector2 screen = RectTransformUtility.WorldToScreenPoint(Camera.main, buttonRect.TransformPoint(buttonRect.rect.center));
+        var pointer = new PointerEventData(EventSystem.current) { position = screen };
+        var hits = new System.Collections.Generic.List<RaycastResult>();
+        EventSystem.current.RaycastAll(pointer, hits);
+        Require(hits.Any(hit => hit.gameObject == next.gameObject),
+            $"Foreground media controls receive pointer input over navigation; point={screen}, screen={Screen.width}x{Screen.height}, hits={string.Join(",", hits.Select(hit => hit.gameObject.name))}.");
+        next.onClick.Invoke();
+        Require(cluster.TrackTitle == "Blue Hour" && cluster.TrackIndex == 1, "Next track changes audio, title and artwork.");
+        cluster.PreviousTrack();
+        Require(cluster.TrackIndex == 0, "Previous track returns to the earlier track.");
+        cluster.TogglePlayback();
+        Require(!Field<bool>(cluster, "playbackRequested") && !source.isPlaying, "Music can be paused independently of the drive.");
+        cluster.NextTrack();
+        Require(!Field<bool>(cluster, "playbackRequested") && !source.isPlaying, "Changing tracks preserves paused media state.");
+        cluster.TogglePlayback();
+        Require(Field<bool>(cluster, "playbackRequested"), "Music resumes after being paused.");
+        cluster.Seek(0.5f);
+        Require(Mathf.Abs(source.time - source.clip.length * 0.5f) < 0.1f, "The playback slider seeks in the clip.");
+        cluster.SetVolume(0.4f);
+        Require(Mathf.Approximately(source.volume, 0.4f), "The volume slider changes output volume.");
+        cluster.ToggleMute();
+        Require(source.mute, "Mute silences audio without resetting the track.");
+        cluster.ToggleMute();
+        cluster.SetVolume(0.22f);
+        int finishedTrack = cluster.TrackIndex;
+        typeof(InstrumentCluster).GetField("lastPlaybackTime", PrivateInstance).SetValue(cluster, source.clip.length - 0.1f);
+        source.Stop();
+        cluster.Tick(0);
+        Require(cluster.TrackIndex != finishedTrack && Field<bool>(cluster, "playbackRequested"),
+            "Playback advances to the next track when a song ends.");
+        controller.TogglePause();
+        Invoke(controller, "RefreshHud");
+        cluster.Tick(1);
+        Require(cluster.DisplayedSpeed == 0 && Field<bool>(cluster, "playbackRequested"), "Pausing the drive zeros speed without pausing music.");
+        controller.TogglePause();
+        controller.ToggleNavigationBackground();
+        cluster.Tick(1);
+        Require(!Field<RectTransform>(Field<object>(controller, "hud"), "safeArea").gameObject.activeSelf && source.clip != null,
+            "Hiding navigation restores the empty center while keeping media alive.");
     }
 
     private static void CheckKeyboardControls(car_navigation controller)
@@ -332,6 +432,24 @@ public static class NavigationSceneChecks
         try
         {
             Invoke(controller, "HandleKeyboardInput", (object)null);
+            InstrumentCluster cluster = Field<InstrumentCluster>(controller, "cluster");
+            bool navigation = cluster.NavigationVisible;
+            PressKeys(controller, keyboard, Key.M);
+            Require(cluster.NavigationVisible != navigation, "M toggles the navigation background.");
+            ApplyKeyboardState(controller, keyboard, Key.M);
+            Require(cluster.NavigationVisible != navigation, "Holding M toggles only once.");
+            PressKeys(controller, keyboard, Key.M);
+            Require(cluster.NavigationVisible == navigation, "M restores the previous background.");
+            bool playing = Field<bool>(cluster, "playbackRequested");
+            PressKeys(controller, keyboard, Key.P);
+            Require(Field<bool>(cluster, "playbackRequested") != playing, "P toggles media playback.");
+            PressKeys(controller, keyboard, Key.P);
+            int track = cluster.TrackIndex;
+            cluster.Seek(0);
+            PressKeys(controller, keyboard, Key.RightBracket);
+            Require(cluster.TrackIndex != track, "Right bracket selects the next track.");
+            PressKeys(controller, keyboard, Key.LeftBracket);
+            Require(cluster.TrackIndex == track, "Left bracket selects the previous track.");
             PressKeys(controller, keyboard, Key.Space);
             Require(Field<bool>(controller, "paused") && Field<float>(controller, "speed") == 0, "Space pauses the drive.");
             Transform marker = Field<Transform>(controller, "vehicle");
@@ -738,14 +856,21 @@ public static class NavigationSceneChecks
         Debug.Log($"ROADMAP CREDIT LAYOUT VERIFIED: {credits.resolvedStyle.width / units:0}x{credits.resolvedStyle.height / units:0} logical pixels.");
     }
 
-    private static float Capture(car_navigation controller, int width, int height, string path)
+    private static float Capture(car_navigation controller, int width, int height, string path, bool navigation = true)
     {
+        InstrumentCluster cluster = Field<InstrumentCluster>(controller, "cluster");
+        if (cluster.NavigationVisible != navigation)
+            controller.ToggleNavigationBackground();
+        cluster.Tick(1);
         Camera camera = Camera.main;
         var target = new RenderTexture(width, height, 24);
         target.Create();
         camera.targetTexture = target;
         Canvas.ForceUpdateCanvases();
         Invoke(controller, "RefreshHud");
+        cluster.Tick(1);
+        foreach (Text text in Field<RectTransform>(cluster, "canvasRect").GetComponentsInChildren<Text>())
+            text.SetAllDirty();
         Canvas.ForceUpdateCanvases();
         RectTransform safeArea = Field<RectTransform>(Field<object>(controller, "hud"), "safeArea");
         Require(!safeArea.GetComponentsInChildren<RectTransform>(true).Any(rect =>
@@ -763,7 +888,7 @@ public static class NavigationSceneChecks
         image.Apply();
         File.WriteAllBytes(path, image.EncodeToPNG());
         Color32[] pixels = image.GetPixels32();
-        if (Field<bool>(controller, "topDownView") && Field<Cesium3DTileset>(controller, "googleRoadmapTileset") != null)
+        if (navigation && Field<bool>(controller, "topDownView") && Field<Cesium3DTileset>(controller, "googleRoadmapTileset") != null)
         {
             Color32 background = camera.backgroundColor;
             int uncovered = pixels.Count(pixel => Mathf.Abs(pixel.r - background.r) <= 2 &&
@@ -771,7 +896,9 @@ public static class NavigationSceneChecks
             Require(uncovered < pixels.Length * 0.01f,
                 $"Google Roadmap covers the viewport at {width}x{height}; uncovered pixels: {100f * uncovered / pixels.Length:0.0}% (camera {camera.pixelWidth}x{camera.pixelHeight}, screen {Screen.width}x{Screen.height}).");
         }
-        float brightness = (float)pixels.Average(pixel => (pixel.r * 0.2126 + pixel.g * 0.7152 + pixel.b * 0.0722) / 255.0);
+        float brightness = (float)pixels.Where((pixel, index) => index % width > width * 0.36f && index % width < width * 0.64f &&
+            index / width > height * 0.35f && index / width < height * 0.7f)
+            .Average(pixel => (pixel.r * 0.2126 + pixel.g * 0.7152 + pixel.b * 0.0722) / 255.0);
         int routePixels = pixels.Count(pixel => pixel.b > 200 && pixel.g > 100 && pixel.g < 170 && pixel.r < 80);
         Vector3 markerScreen = camera.WorldToScreenPoint(Field<Transform>(controller, "vehicle").position);
         int arrowPixels = 0;
@@ -782,8 +909,16 @@ public static class NavigationSceneChecks
                 if (pixel.b > 170 && pixel.r < 45 && pixel.g < 100)
                     arrowPixels++;
             }
-        Require(routePixels > 100, $"Blue route highlight is visible at {width}x{height}.");
-        Require(arrowPixels > 15, $"Blue navigation arrow is visible at its current position at {width}x{height}.");
+        if (navigation)
+        {
+            Require(routePixels > 100, $"Blue route highlight is visible at {width}x{height}.");
+            Require(arrowPixels > 15, $"Blue navigation arrow is visible at its current position at {width}x{height}.");
+        }
+        else
+            Require(brightness < 0.12f, "The center is empty graphite rather than a map or placeholder when navigation is hidden.");
+        Require(Field<RectTransform>(cluster, "canvasRect").Find("Speedometer").gameObject.activeInHierarchy &&
+            Field<RectTransform>(cluster, "canvasRect").Find("Media Player").gameObject.activeInHierarchy,
+            "Speed and media instruments remain visible in either background mode.");
         Require(pixels.Select(pixel => (pixel.r << 16) | (pixel.g << 8) | pixel.b).Distinct().Count() > 100, "Render is not blank.");
 
         RenderTexture.active = previous;

@@ -1,11 +1,19 @@
-# San Francisco Navigation Display
+# San Francisco Instrument Cluster
 
 Open `Assets/Scenes/SampleScene.unity` in Unity 6000.6 and press **Play**.
+The scene starts as a **1920x720 instrument cluster**: an animated speedometer on
+the left, a media player on the right, and an empty center. Press **M** to reveal
+the moving navigation map across the entire background; both instruments stay in
+the foreground. Press **M** again to return to the clean cluster. The drive and
+music continue independently of which background is visible.
+
 The blue arrow follows a one-way 0.9 km drive from Drumm Street to Washington
 Street beside the Transamerica Pyramid, then stops and displays **Arrived**.
 The route does not loop or restart automatically; restart Play mode to drive again. **Google
 Photorealistic 3D Tiles is the default map source.** Without a configured key, the
-display automatically uses the bundled offline OpenStreetMap map.
+display automatically uses the bundled offline OpenStreetMap map. The speedometer
+uses that drive's actual simulated speed, including acceleration, slowing at turns,
+pausing, and stopping on arrival. It is not connected to real vehicle telemetry.
 
 The standalone player defaults to a **1920x720 window**. The editor selects a
 matching fixed-resolution Game view preset once per session; select
@@ -21,7 +29,9 @@ the preview to fit the Game tab, but its render resolution remains 1920x720.
 	outside `Assets`; it is not imported or included in builds.
 3. Press **Play**. The car waits while Cesium streams the map and samples the route
 	elevation for 3D, then starts cruising. In 2D it waits for Google Roadmap imagery
-	instead; no 3D terrain sampling is required. Google/server attribution stays on screen.
+	instead; no 3D terrain sampling is required. Google/server attribution stays on
+	screen whenever the map is revealed. Map streaming starts with the scene, even
+	while the cluster-only background is visible, and may incur API charges.
 
 To select the original styled map, change **Map Source** on the `car_navigation`
 component under `CesiumGeoreference` to **Offline Open Street Map**, then restart
@@ -46,12 +56,16 @@ access and is subject to Google's billing, coverage, and Map Tiles API terms.
 
 The display includes an angled follow camera, real street and building footprints,
 a highlighted route, upcoming turns, a compact current-street label, and arrival
-guidance. The map fills the display without top or bottom horizontal bars or
-on-screen navigation buttons; provider credits and their links remain available.
-Controls are keyboard-only. In the editor, focus the **Game** view first:
+guidance. The map fills the background without top or bottom bars or on-screen
+navigation buttons; provider credits remain visible between the foreground
+instruments. Media controls are clickable icons and sliders. In the editor, focus
+the **Game** view for keyboard shortcuts:
 
 | Shortcut | Action |
 | --- | --- |
+| **M** | Reveal / hide the full-background navigation map |
+| **P** | Play / pause music |
+| **[** / **]** | Previous / next media track |
 | **+** or **=** (also numpad **+**) | Zoom in |
 | **-** (also numpad **-**) | Zoom out |
 | **N** | Toggle north-up / heading-up |
@@ -61,7 +75,23 @@ Controls are keyboard-only. In the editor, focus the **Game** view first:
 
 Each press performs one action. Pause/resume does not restart a completed trip.
 
-The display starts in daytime with the angled 3D view. The two mode switches are
+## Media Player
+
+The player supports play/pause, previous/next track, seek, volume, mute, elapsed
+time, automatic track advance, track title, and artwork. It starts at low volume
+with three original synthesized demo tracks and generated artwork, so the controls
+work immediately without downloads or an account. These are demonstration music
+clips, not commercial songs or a connection to Spotify/Apple Music.
+
+To play your own music, add Unity-supported audio assets to the project and assign
+them to **Cluster Media > Media Tracks** on the `car_navigation` component. Null
+entries are ignored; an empty list uses the demo playlist. Local track titles use
+the clip names and generated artwork. **Space** pauses only the drive; **P** pauses
+only music. The previous-track control restarts a track after its first three
+seconds, otherwise selects the preceding track.
+
+The map starts in daytime with the angled 3D view, hidden behind the cluster until
+**M** is pressed. The two map mode switches are
 independent and preserve route progress, pause state, zoom, and heading preference.
 
 **Google 2D mode uses real [Roadmap tiles](https://developers.google.com/maps/documentation/tile/roadmap)**,
@@ -97,6 +127,7 @@ tiles to project assets.
 
 The `car_navigation` component on `CesiumGeoreference` exposes initial **Top Down
 View** (Google Roadmap in Google mode) and **Night Mode** settings, cruise speed, and camera height.
+**Navigation Background** controls whether the scene starts with the map revealed.
 **Navigation > Preview Downtown Display** previews the generated
 offline map in the editor without Google requests; Play mode is the normal animated
 experience. The Google map retains real building heights and uses sampled road
@@ -107,14 +138,18 @@ surface elevation; the offline map keeps its simplified heights.
 - Street/building geometry: [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), licensed under [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/). The bundled XML is a filtered downtown extract downloaded from the OSM API. Building heights are compressed for legibility; ground elevation is flattened.
 - Driving route: the outbound leg of a route generated with the [OSRM routing service](https://project-osrm.org/) using OpenStreetMap roads. It is a bundled demonstration route, not live traffic, GPS positioning, or a production navigation service.
 - Typeface: Barlow Medium, under the SIL Open Font License bundled in `Assets/NavigationDisplay-License.txt`.
+- Demo media: original synthesized music and procedurally generated bitmap artwork created at runtime; no third-party recordings are bundled.
 - Cesium provides geographic coordinate conversion and streams [Google Photorealistic 3D Tiles](https://developers.google.com/maps/documentation/tile/3d-tiles) or Google 2D Roadmap tiles when selected and configured. The unused original tileset remains disabled. Google tiles and sampled heights are not saved as local map assets.
 
 ## Verification
 
 `NavigationSceneChecks.Run` is an editor batch entry point that checks geometry,
+cluster-only and navigation-background rendering, speed binding, media button hit
+testing, playback/track/seek/volume/mute/auto-advance behavior, the empty center, and
+persistent foreground instruments. It also checks
 one-way travel, destination arrival without wraparound, simulated keyboard presses,
 pause/resume, orientation toggling, zoom bounds, held-key behavior, absence of
-on-screen controls and full-width HUD bars, and desktop/portrait rendering. Mode
+on-screen navigation controls and full-width HUD bars, and desktop/portrait rendering. Mode
 checks cover all day/night and 2D/3D combinations at 1920x720, portrait 2D views,
 rendered night brightness, camera direction, unchanged trip progress, and new-tile
 theme inheritance without modifying shared materials. It also checks the Google default,

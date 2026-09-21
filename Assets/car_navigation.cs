@@ -24,6 +24,10 @@ public class car_navigation : MonoBehaviour
 	[Header("Display Modes")]
 	[SerializeField] private bool topDownView;
 	[SerializeField] private bool nightMode;
+	[SerializeField] private bool navigationBackground;
+
+	[Header("Cluster Media")]
+	[SerializeField] private AudioClip[] mediaTracks = Array.Empty<AudioClip>();
 
 	[Header("Downtown San Francisco")]
 	[SerializeField] private CesiumGeoreference georeference;
@@ -55,6 +59,7 @@ public class car_navigation : MonoBehaviour
 	private Transform generated;
 	private SanFranciscoMap map;
 	private NavigationHud hud;
+	private InstrumentCluster cluster;
 	private Cesium3DTileset googleTileset;
 	private Cesium3DTileset googleRoadmapTileset;
 	private CesiumGoogleMapTilesRasterOverlay googleRoadmapOverlay;
@@ -80,6 +85,7 @@ public class car_navigation : MonoBehaviour
 	private static readonly int StandardBaseColor = Shader.PropertyToID("_BaseColor");
 	private static readonly int RoadmapTexture = Shader.PropertyToID("_overlayTexture_0");
 	private bool IsGoogleRoadmap => topDownView && googleRoadmapTileset != null;
+	public float SpeedMph => speed / MetersPerMile * 3600f;
 
 	public static string GoogleApiKeyDirectory => Application.isEditor
 		? Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings"))
@@ -170,6 +176,9 @@ public class car_navigation : MonoBehaviour
 		PlaceVehicle();
 		UpdateCamera(true);
 		hud = new NavigationHud(generated, navigationCamera, displayFont, MapPoint);
+		cluster = generated.gameObject.AddComponent<InstrumentCluster>();
+		cluster.Initialize(navigationCamera, displayFont, mediaTracks);
+		ApplyNavigationBackground();
 		ApplyDisplayTheme();
 		if (googleMapLoading)
 		{
@@ -700,6 +709,14 @@ public class car_navigation : MonoBehaviour
 		{
 			if (keyboard.spaceKey.wasPressedThisFrame)
 				TogglePause();
+			if (keyboard.mKey.wasPressedThisFrame)
+				ToggleNavigationBackground();
+			if (keyboard.pKey.wasPressedThisFrame)
+				cluster?.TogglePlayback();
+			if (keyboard.rightBracketKey.wasPressedThisFrame)
+				cluster?.NextTrack();
+			if (keyboard.leftBracketKey.wasPressedThisFrame)
+				cluster?.PreviousTrack();
 			if (keyboard.nKey.wasPressedThisFrame)
 				ToggleOrientation();
 			if (keyboard.vKey.wasPressedThisFrame)
@@ -791,6 +808,7 @@ public class car_navigation : MonoBehaviour
 				street = step.street;
 		hud?.Update(street, next.street, next.modifier, turnDistance,
 			paused, googleTileset != null || googleRoadmapTileset != null, googleMapLoading, arrived, IsGoogleRoadmap);
+		cluster?.SetDrivingState(SpeedMph, paused, arrived, googleMapLoading);
 	}
 
 	private void UpdateCamera(bool immediate)
@@ -814,6 +832,17 @@ public class car_navigation : MonoBehaviour
 			speed = 0;
 	}
 	public void ToggleOrientation() => northUp = !northUp;
+	public void ToggleNavigationBackground()
+	{
+		navigationBackground = !navigationBackground;
+		ApplyNavigationBackground();
+	}
+
+	private void ApplyNavigationBackground()
+	{
+		hud?.SetVisible(navigationBackground);
+		cluster?.SetNavigationVisible(navigationBackground);
+	}
 	public void ToggleViewMode()
 	{
 		topDownView = !topDownView;
