@@ -339,9 +339,20 @@ public static class NavigationSceneChecks
     private static void CheckInstrumentCluster(car_navigation controller, string output)
     {
         InstrumentCluster cluster = Field<InstrumentCluster>(controller, "cluster");
-        Require(cluster != null && !cluster.NavigationVisible && !Field<bool>(controller, "navigationBackground"),
-            "The scene starts as an instrument cluster with navigation hidden.");
+        Require(cluster != null && !cluster.IsVisible && cluster.NavigationVisible &&
+            !Field<bool>(controller, "instrumentClusterVisible") && Field<bool>(controller, "navigationBackground"),
+            "The scene starts with navigation only and the instrument cluster disabled.");
         RectTransform canvas = Field<RectTransform>(cluster, "canvasRect");
+        RectTransform navigationHud = Field<RectTransform>(Field<object>(controller, "hud"), "safeArea");
+        Require(navigationHud.gameObject.activeInHierarchy, "Navigation is visible on startup.");
+        Require(canvas.GetComponentsInChildren<Button>(true).All(button => !button.isActiveAndEnabled),
+            "Hidden cluster controls are inactive and cannot receive input on startup.");
+        Capture(controller, 1920, 720, Path.Combine(output, "navigation-only-default.png"));
+        controller.ToggleInstrumentCluster();
+        cluster.Tick(1);
+        Require(cluster.IsVisible && cluster.NavigationVisible && navigationHud.gameObject.activeInHierarchy,
+            "Enabling the cluster overlays the instruments on navigation by default.");
+        controller.ToggleNavigationBackground();
         CanvasScaler scaler = canvas.GetComponent<CanvasScaler>();
         Require(scaler.referenceResolution == new Vector2(1920, 720), "The cluster targets 1920x720.");
         RectTransform speedometer = (RectTransform)canvas.Find("Speedometer");
@@ -386,9 +397,24 @@ public static class NavigationSceneChecks
         Vector2 screen = RectTransformUtility.WorldToScreenPoint(Camera.main, buttonRect.TransformPoint(buttonRect.rect.center));
         var pointer = new PointerEventData(EventSystem.current) { position = screen };
         var hits = new System.Collections.Generic.List<RaycastResult>();
+        int hiddenSegment = Field<int>(controller, "segment");
+        float hiddenDistance = Field<float>(controller, "segmentDistance");
+        AudioClip playingClip = source.clip;
+        float playingTime = source.time;
+        bool playback = Field<bool>(cluster, "playbackRequested");
+        controller.ToggleInstrumentCluster();
+        Canvas.ForceUpdateCanvases();
         EventSystem.current.RaycastAll(pointer, hits);
-        Require(hits.Any(hit => hit.gameObject == next.gameObject),
-            $"Foreground media controls receive pointer input over navigation; point={screen}, screen={Screen.width}x{Screen.height}, hits={string.Join(",", hits.Select(hit => hit.gameObject.name))}.");
+        Require(!cluster.IsVisible && navigationHud.gameObject.activeInHierarchy &&
+            !hits.Any(hit => hit.gameObject.transform.IsChildOf(canvas)),
+            "Hiding the cluster removes both instruments, shading and all media hit targets while keeping navigation visible.");
+        Require(Field<int>(controller, "segment") == hiddenSegment && Field<float>(controller, "segmentDistance") == hiddenDistance &&
+            source.clip == playingClip && Mathf.Abs(source.time - playingTime) < 0.5f && Field<bool>(cluster, "playbackRequested") == playback,
+            "Toggling the cluster does not reset navigation or change media playback.");
+        Capture(controller, 1920, 720, Path.Combine(output, "navigation-only-restored.png"));
+        controller.ToggleInstrumentCluster();
+        cluster.Tick(1);
+        Capture(controller, 1920, 720, Path.Combine(output, "cluster-restored.png"));
         next.onClick.Invoke();
         Require(cluster.TrackTitle == "Blue Hour" && cluster.TrackIndex == 1, "Next track changes audio, title and artwork.");
         cluster.PreviousTrack();
@@ -422,6 +448,16 @@ public static class NavigationSceneChecks
         cluster.Tick(1);
         Require(!Field<RectTransform>(Field<object>(controller, "hud"), "safeArea").gameObject.activeSelf && source.clip != null,
             "Hiding navigation restores the empty center while keeping media alive.");
+        controller.ToggleInstrumentCluster();
+        Require(!cluster.IsVisible && navigationHud.gameObject.activeInHierarchy && cluster.NavigationVisible,
+            "Disabling the cluster from cluster-only mode always restores navigation.");
+        controller.ToggleNavigationBackground();
+        Require(cluster.NavigationVisible && !Field<bool>(controller, "navigationBackground"),
+            "The background shortcut cannot hide navigation when the cluster is disabled.");
+        controller.ToggleInstrumentCluster();
+        Require(cluster.IsVisible && !cluster.NavigationVisible, "Re-enabling the cluster restores its previous background preference.");
+        controller.ToggleNavigationBackground();
+        controller.ToggleInstrumentCluster();
     }
 
     private static void CheckKeyboardControls(car_navigation controller)
@@ -433,6 +469,13 @@ public static class NavigationSceneChecks
         {
             Invoke(controller, "HandleKeyboardInput", (object)null);
             InstrumentCluster cluster = Field<InstrumentCluster>(controller, "cluster");
+            Require(!cluster.IsVisible && cluster.NavigationVisible, "Keyboard checks start in navigation-only mode.");
+            PressKeys(controller, keyboard, Key.M);
+            Require(!cluster.IsVisible && cluster.NavigationVisible, "M cannot blank the navigation-only view.");
+            PressKeys(controller, keyboard, Key.C);
+            Require(cluster.IsVisible && cluster.NavigationVisible, "C enables the cluster over navigation.");
+            ApplyKeyboardState(controller, keyboard, Key.C);
+            Require(cluster.IsVisible, "Holding C toggles the cluster only once.");
             bool navigation = cluster.NavigationVisible;
             PressKeys(controller, keyboard, Key.M);
             Require(cluster.NavigationVisible != navigation, "M toggles the navigation background.");
@@ -440,6 +483,8 @@ public static class NavigationSceneChecks
             Require(cluster.NavigationVisible != navigation, "Holding M toggles only once.");
             PressKeys(controller, keyboard, Key.M);
             Require(cluster.NavigationVisible == navigation, "M restores the previous background.");
+            PressKeys(controller, keyboard, Key.C);
+            Require(!cluster.IsVisible && cluster.NavigationVisible, "C returns to navigation-only mode.");
             bool playing = Field<bool>(cluster, "playbackRequested");
             PressKeys(controller, keyboard, Key.P);
             Require(Field<bool>(cluster, "playbackRequested") != playing, "P toggles media playback.");
@@ -859,6 +904,7 @@ public static class NavigationSceneChecks
     private static float Capture(car_navigation controller, int width, int height, string path, bool navigation = true)
     {
         InstrumentCluster cluster = Field<InstrumentCluster>(controller, "cluster");
+        Require(navigation || cluster.IsVisible, "A cluster-only capture requires the cluster to be enabled explicitly.");
         if (cluster.NavigationVisible != navigation)
             controller.ToggleNavigationBackground();
         cluster.Tick(1);
@@ -916,10 +962,22 @@ public static class NavigationSceneChecks
         }
         else
             Require(brightness < 0.12f, "The center is empty graphite rather than a map or placeholder when navigation is hidden.");
-        Require(Field<RectTransform>(cluster, "canvasRect").Find("Speedometer").gameObject.activeInHierarchy &&
-            Field<RectTransform>(cluster, "canvasRect").Find("Media Player").gameObject.activeInHierarchy,
-            "Speed and media instruments remain visible in either background mode.");
+        Require(Field<RectTransform>(cluster, "canvasRect").Find("Speedometer").gameObject.activeInHierarchy == cluster.IsVisible &&
+            Field<RectTransform>(cluster, "canvasRect").Find("Media Player").gameObject.activeInHierarchy == cluster.IsVisible,
+            "Both instruments follow the cluster visibility setting without changing the navigation background.");
         Require(pixels.Select(pixel => (pixel.r << 16) | (pixel.g << 8) | pixel.b).Distinct().Count() > 100, "Render is not blank.");
+
+        RectTransform clusterCanvas = Field<RectTransform>(cluster, "canvasRect");
+        Button mediaButton = clusterCanvas.GetComponentsInChildren<Button>(true).Single(button => button.name == "Next track");
+        RectTransform buttonRect = (RectTransform)mediaButton.transform;
+        var pointer = new PointerEventData(EventSystem.current)
+        {
+            position = RectTransformUtility.WorldToScreenPoint(camera, buttonRect.TransformPoint(buttonRect.rect.center))
+        };
+        var hits = new System.Collections.Generic.List<RaycastResult>();
+        EventSystem.current.RaycastAll(pointer, hits);
+        Require(hits.Any(hit => hit.gameObject == mediaButton.gameObject) == cluster.IsVisible,
+            $"Media controls receive input only when the cluster is enabled at {width}x{height}.");
 
         RenderTexture.active = previous;
         camera.targetTexture = null;

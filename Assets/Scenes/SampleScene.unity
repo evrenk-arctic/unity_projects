@@ -344,6 +344,8 @@ MonoBehaviour:
   navigationCamera: {fileID: 330585545}
   mapSource: 0
   googleApiKeyFile: GoogleMapsApiKey.txt
+  navigationBackground: 1
+  instrumentClusterVisible: 0
   mapData: {fileID: 4900000, guid: 60a3c61ed959e4e85be2dc85eb195b32, type: 3}
   routeData: {fileID: 4900000, guid: 58b115fde9c9040199f7c8ea7472997f, type: 3}
   displayFont: {fileID: 12800000, guid: 0266064ac85f24769bbb14fd58f115ba, type: 3}

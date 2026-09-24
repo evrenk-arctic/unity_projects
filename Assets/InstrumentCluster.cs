@@ -46,6 +46,7 @@ public sealed class InstrumentCluster : MonoBehaviour
     public int TrackIndex => trackIndex;
     public bool IsPlaying => playbackRequested && audioSource.isPlaying;
     public bool NavigationVisible => navigationVisible;
+    public bool IsVisible => canvasRect != null && canvasRect.gameObject.activeSelf;
 
     public void Initialize(Camera camera, Font font, AudioClip[] tracks)
     {
@@ -160,6 +161,11 @@ public sealed class InstrumentCluster : MonoBehaviour
         targetSpeed = loading ? 0 : Mathf.Max(0, speedMph);
         gearText.text = arrived ? "P" : "D";
         driveState.text = loading ? "CONNECTING" : arrived ? "PARKED" : paused ? "DRIVE PAUSED" : "CRUISING";
+    }
+
+    public void SetVisible(bool visible)
+    {
+        canvasRect.gameObject.SetActive(visible);
     }
 
     public void SetNavigationVisible(bool visible)

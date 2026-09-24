@@ -1,11 +1,13 @@
 # San Francisco Instrument Cluster
 
 Open `Assets/Scenes/SampleScene.unity` in Unity 6000.6 and press **Play**.
-The scene starts as a **1920x720 instrument cluster**: an animated speedometer on
-the left, a media player on the right, and an empty center. Press **M** to reveal
-the moving navigation map across the entire background; both instruments stay in
-the foreground. Press **M** again to return to the clean cluster. The drive and
-music continue independently of which background is visible.
+The scene starts in **1920x720 navigation-only mode**. Press **C** to show or hide
+the instrument cluster: an animated speedometer on the left and a media player on
+the right, over the map. With the cluster enabled, **M** switches between a map
+background and a clean cluster with an empty center. Hiding the cluster always
+restores navigation, even from the cluster-only view. Its background preference
+is remembered for the next time you enable it. Toggling the cluster does not reset
+the drive or change music playback.
 
 The blue arrow follows a one-way 0.9 km drive from Drumm Street to Washington
 Street beside the Transamerica Pyramid, then stops and displays **Arrived**.
@@ -63,7 +65,8 @@ the **Game** view for keyboard shortcuts:
 
 | Shortcut | Action |
 | --- | --- |
-| **M** | Reveal / hide the full-background navigation map |
+| **C** | Show / hide the instrument cluster (hidden by default) |
+| **M** | Reveal / hide the navigation background while the cluster is enabled |
 | **P** | Play / pause music |
 | **[** / **]** | Previous / next media track |
 | **+** or **=** (also numpad **+**) | Zoom in |
@@ -90,8 +93,8 @@ the clip names and generated artwork. **Space** pauses only the drive; **P** pau
 only music. The previous-track control restarts a track after its first three
 seconds, otherwise selects the preceding track.
 
-The map starts in daytime with the angled 3D view, hidden behind the cluster until
-**M** is pressed. The two map mode switches are
+The map starts visible in daytime with the angled 3D view and the cluster hidden.
+The two map mode switches are
 independent and preserve route progress, pause state, zoom, and heading preference.
 
 **Google 2D mode uses real [Roadmap tiles](https://developers.google.com/maps/documentation/tile/roadmap)**,
@@ -127,7 +130,9 @@ tiles to project assets.
 
 The `car_navigation` component on `CesiumGeoreference` exposes initial **Top Down
 View** (Google Roadmap in Google mode) and **Night Mode** settings, cruise speed, and camera height.
-**Navigation Background** controls whether the scene starts with the map revealed.
+**Instrument Cluster Visible** controls initial cluster visibility (off by default).
+**Navigation Background** selects the cluster's background when enabled (map by
+default); navigation is always visible when the cluster is hidden.
 **Navigation > Preview Downtown Display** previews the generated
 offline map in the editor without Google requests; Play mode is the normal animated
 experience. The Google map retains real building heights and uses sampled road
@@ -144,7 +149,8 @@ surface elevation; the offline map keeps its simplified heights.
 ## Verification
 
 `NavigationSceneChecks.Run` is an editor batch entry point that checks geometry,
-cluster-only and navigation-background rendering, speed binding, media button hit
+navigation-only startup, C-key press/hold behavior, cluster visibility and hidden
+hit targets, preserved route/media state, cluster-only and navigation-background rendering, speed binding, media button hit
 testing, playback/track/seek/volume/mute/auto-advance behavior, the empty center, and
 persistent foreground instruments. It also checks
 one-way travel, destination arrival without wraparound, simulated keyboard presses,

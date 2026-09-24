@@ -24,7 +24,8 @@ public class car_navigation : MonoBehaviour
 	[Header("Display Modes")]
 	[SerializeField] private bool topDownView;
 	[SerializeField] private bool nightMode;
-	[SerializeField] private bool navigationBackground;
+	[SerializeField] private bool navigationBackground = true;
+	[SerializeField] private bool instrumentClusterVisible;
 
 	[Header("Cluster Media")]
 	[SerializeField] private AudioClip[] mediaTracks = Array.Empty<AudioClip>();
@@ -709,6 +710,8 @@ public class car_navigation : MonoBehaviour
 		{
 			if (keyboard.spaceKey.wasPressedThisFrame)
 				TogglePause();
+			if (keyboard.cKey.wasPressedThisFrame)
+				ToggleInstrumentCluster();
 			if (keyboard.mKey.wasPressedThisFrame)
 				ToggleNavigationBackground();
 			if (keyboard.pKey.wasPressedThisFrame)
@@ -832,16 +835,26 @@ public class car_navigation : MonoBehaviour
 			speed = 0;
 	}
 	public void ToggleOrientation() => northUp = !northUp;
+	public void ToggleInstrumentCluster()
+	{
+		instrumentClusterVisible = !instrumentClusterVisible;
+		ApplyNavigationBackground();
+	}
+
 	public void ToggleNavigationBackground()
 	{
+		if (!instrumentClusterVisible)
+			return;
 		navigationBackground = !navigationBackground;
 		ApplyNavigationBackground();
 	}
 
 	private void ApplyNavigationBackground()
 	{
-		hud?.SetVisible(navigationBackground);
-		cluster?.SetNavigationVisible(navigationBackground);
+		bool showNavigation = !instrumentClusterVisible || navigationBackground;
+		hud?.SetVisible(showNavigation);
+		cluster?.SetVisible(instrumentClusterVisible);
+		cluster?.SetNavigationVisible(showNavigation);
 	}
 	public void ToggleViewMode()
 	{
